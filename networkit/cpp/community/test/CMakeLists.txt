@@ -9,3 +9,6 @@ networkit_add_test(community LouvainMapEquationGTest
 
 networkit_add_benchmark(community LouvainMapEquationBenchmark
 		auxiliary generators io)
+
+networkit_add_test(community DirectedLouvainMapEquationGTest
+		auxiliary generators io)

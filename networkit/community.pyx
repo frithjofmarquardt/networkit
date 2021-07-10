@@ -414,6 +414,27 @@ cdef class LouvainMapEquation(CommunityDetector):
 		self._G = G
 		self._this = new _LouvainMapEquation(G._this, hierarchical, maxIterations, stdstring(parallelizationStrategy))
 
+cdef extern from "<networkit/community/DirectedLouvainMapEquation.hpp>":
+	cdef cppclass _DirectedLouvainMapEquation "NetworKit::DirectedLouvainMapEquation"(_CommunityDetectionAlgorithm):
+		_DirectedLouvainMapEquation(_Graph, count ) except +
+
+cdef class DirectedLouvainMapEquation(CommunityDetector):
+	"""
+	Community detection algorithm based on the Louvain algorithm. Uses the Map Equation to find communities.
+
+	Parameters
+	----------
+	G : networkit.Graph
+		The graph on which the algorithm has to run.
+	maxIterations: count
+		(optional) The maximum number of local move iterations.
+	"""
+
+	def __cinit__(self, Graph G not None, maxIterations = 32):
+		self._G = G
+		self._this = new _DirectedLouvainMapEquation(G._this, maxIterations)
+
+
 cdef extern from "<networkit/community/PLP.hpp>":
 
 	cdef cppclass _PLP "NetworKit::PLP"(_CommunityDetectionAlgorithm):
