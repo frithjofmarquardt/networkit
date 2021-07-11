@@ -30,9 +30,9 @@ DirectedLouvainMapEquation::DirectedLouvainMapEquation(const Graph &graph, count
     : CommunityDetectionAlgorithm(graph, Partition(graph.upperNodeIdBound())),
       maxIterations(maxIterations), clusterCut(graph.upperNodeIdBound()),
       clusterVolume(graph.upperNodeIdBound()), nodeFrequencies(graph.upperNodeIdBound(), 0),
-      partitionSizes(graph.upperNodeIdBound(), 1) {
+      weightedOutDegrees(G->upperNodeIdBound(), 0) {
         tau = 0.15;
-        fitness = -1;
+        fitness = -1;;
       }
 
 void DirectedLouvainMapEquation::run() {
@@ -57,29 +57,31 @@ void DirectedLouvainMapEquation::run() {
     }
     handler.assureRunning();
     
+    // calculate out degrees for relative edgeweights
+    for (node u = 0; u < G->upperNodeIdBound(); u++) {
+        if (G->hasNode(u))
+        {
+            weightedOutDegrees[u] = G->weightedDegree(u, false);
+        }
+    }
+    // initial setup for algorithm
     calculateNodeFrequencies();
-    
     calculateInitialClusterCutAndVolume();
 
-    bool clusteringChanged = false;
     std::vector<node> nodes{G->nodeRange().begin(), G->nodeRange().end()};
     count numberOfNodesMoved = 1;
-
     
     for (count iteration = 0; iteration < maxIterations && numberOfNodesMoved > 0; ++iteration) {
         handler.assureRunning();
         
-        std::shuffle(nodes.begin(), nodes.end(), Aux::Random::getURNG());
-        
-        numberOfNodesMoved = localMoving(nodes, iteration);
-        clusteringChanged |= numberOfNodesMoved > 0;
+        numberOfNodesMoved = localMoving(nodes);
     }
     
 
     hasRun = true;
 }
 
-count DirectedLouvainMapEquation::localMoving(std::vector<node> &nodes, count iteration) {
+count DirectedLouvainMapEquation::localMoving(std::vector<node> &nodes) {
     count nodesMoved = 0;
 
     for (node u : nodes) {
@@ -88,7 +90,7 @@ count DirectedLouvainMapEquation::localMoving(std::vector<node> &nodes, count it
         }
 #ifndef NDEBUG
         newfitness = mapEquation();
-        assert(newfitness - oldfitness - lastChange < pow(10, -12));
+        assert(abs(newfitness - oldfitness - lastChange) < pow(10, -12));
 #endif
     }
 
@@ -109,6 +111,7 @@ bool DirectedLouvainMapEquation::tryLocalMove(node u) {
     index bestTarget = currentCluster;
     double bestCurrentCut, bestTargetCut;
 
+    // for all neighbors of u, test if moving u to neighbors cluster improves map equation
     auto lambda = [&](node, node v, edgeweight weight) {
         targetCluster = result[v];
         if (currentCluster != targetCluster && targetCluster != bestTarget) {
@@ -127,10 +130,9 @@ bool DirectedLouvainMapEquation::tryLocalMove(node u) {
     };
 
     G->forEdgesOf(u, lambda);
-
     G->forInEdgesOf(u, lambda);
 
-
+    // move u to best target cluster
     if (bestTarget != currentCluster) {
 
 #ifndef NDEBUG
@@ -151,15 +153,11 @@ double DirectedLouvainMapEquation::fitnessChange(node u, double frequency, doubl
     const double currentCutOld = clusterCut[currentCluster];
     const double targetCutOld = clusterCut[targetCluster];
     
+    // calculate deltas for three terms in map equation that change when moving node u
     const double totalCutDelta = plogp(totalCut - currentCutOld - targetCutOld + newCurrentCut + newTargetCut) - plogp(totalCut);
-    double clusterCutDelta = 2 * (plogp(currentCutOld) + plogp(targetCutOld) - plogp(newTargetCut));
-    double cutPlusVolumeDelta = plogp(newTargetCut + newTargetVolume) - plogp(currentCutOld + clusterVolume[currentCluster]) - plogp(targetCutOld + clusterVolume[targetCluster]);
+    double clusterCutDelta = 2 * (plogp(currentCutOld) + plogp(targetCutOld) - plogp(newTargetCut) - plogp(newCurrentCut));
+    double cutPlusVolumeDelta = plogp(newCurrentCut + newCurrentVolume) + plogp(newTargetCut + newTargetVolume) - plogp(currentCutOld + clusterVolume[currentCluster]) - plogp(targetCutOld + clusterVolume[targetCluster]);
 
-    // case for now empty current cluster, if inequation plogp(near 0) lets deltas explode
-    if (newCurrentVolume != 0) {
-        clusterCutDelta -= 2 * plogp(newCurrentCut);
-        cutPlusVolumeDelta += plogp(newCurrentCut + newCurrentVolume);
-    }
     return totalCutDelta + clusterCutDelta + cutPlusVolumeDelta;
 }
 
@@ -174,41 +172,48 @@ void DirectedLouvainMapEquation::calculateNewCutAndVolume(node u, double frequen
     double sumIn = 0;
 
     if (subsetSizeMap.at(currentCluster) == 1) {
+        // if u is last node in cluster set q_i and volume to 0
         newCurrentVolume = 0;
         newCurrentCut = 0;
     } else {
         newCurrentVolume = clusterVolume[currentCluster] - frequency;
 
         G->forEdgesOf(u, [&](node, node v, edgeweight ew) {
-            if (result.subsetOf(v) != currentCluster)
+            if (result[v] != currentCluster)
                 sumOut += frequency * ew;
         });
 
+        sumOut /= weightedOutDegrees[u];
+
         G->forInEdgesOf(u, [&](node, node v, edgeweight ew) {
-            if (result.subsetOf(v) == currentCluster)
-                sumIn += nodeFrequencies[v] * ew;
+            if (result[v] == currentCluster)
+                sumIn += nodeFrequencies[v] * ew / weightedOutDegrees[v];
         });
 
+        // newCut = oldCut + tau*(newVolume/n - (n-n_i)*frequency[u]/n) + (1-tau)*(sum_in-sum_out)
         newCurrentCut = clusterCut[currentCluster] + tau * (newCurrentVolume / (double) numberNodes - (numberNodes - subsetSizeMap.at(currentCluster)) / (double) numberNodes * frequency) + (1 - tau) * (sumIn - sumOut);
     }
     
     if (subsetSizeMap.at(targetCluster) == numberNodes - 1) {
+        // if nodes are all in 1 cluster set volume to 1, q_i to 0
         newTargetVolume = 1;
         newTargetCut = 0;
     } else {
         newTargetVolume = clusterVolume[targetCluster] + frequency;
         sumOut = 0;
         G->forEdgesOf(u, [&](node, node v, edgeweight ew) {
-            if (result.subsetOf(v) != targetCluster)
+            if (result[v] != targetCluster)
                 sumOut += frequency * ew;
         });
 
+        sumOut /= weightedOutDegrees[u];
+
         sumIn = 0;
         G->forInEdgesOf(u, [&](node, node v, edgeweight ew) {
-            if (result.subsetOf(v) == targetCluster)
-                sumIn += nodeFrequencies[v] * ew;
+            if (result[v] == targetCluster)
+                sumIn += nodeFrequencies[v] * ew / weightedOutDegrees[v];
         });
-
+        // newCut = oldCut + tau*(oldVolume/n - (n-n_i-1)*frequency[u]/n) + (1-tau)*(sum_out-sum_in)
         newTargetCut = clusterCut[targetCluster] + tau * ((numberNodes - subsetSizeMap.at(targetCluster) - 1) / (double) numberNodes * frequency - clusterVolume[targetCluster] / numberNodes) + (1 - tau) * (sumOut - sumIn);
     }
 }
@@ -217,14 +222,18 @@ bool DirectedLouvainMapEquation::performMove(node u, double frequency, node curr
                                              double currentCut, double targetCut, double fitnessDelta) {
     bool moved = true;
 
+    // node moves from current to target -> adjust sum of frequencies in both clusters
     clusterVolume[currentCluster] -= frequency;
     clusterVolume[targetCluster] += frequency;
 
+    // adjust sum of all q_i
     totalCut += currentCut + targetCut - clusterCut[currentCluster] - clusterCut[targetCluster];
 
+    // set new q_i for current and target cluster
     clusterCut[currentCluster] = currentCut;
     clusterCut[targetCluster] = targetCut;
 
+    // adjust result partition with move
     result.moveToSubset(targetCluster, u);
 
     fitness += fitnessDelta;
@@ -233,17 +242,16 @@ bool DirectedLouvainMapEquation::performMove(node u, double frequency, node curr
 }
 
 
-// calculate node visit frequencies using power iteration method
+// calculate node visit frequencies using page rank algorithm
 void DirectedLouvainMapEquation::calculateNodeFrequencies() {
     // initial distribution of uniform frequencies
-    std::vector<double> nodeFrequenciesNew(G->upperNodeIdBound(), 1 / (double) G->upperNodeIdBound());
+    std::vector<double> nodeFrequenciesNew(G->upperNodeIdBound(), 1 / (double) G->numberOfNodes());
 
     int iter = 0;
-    edgeweight sumOutgoingWeights = 0;
 
     double distributeNeighborPortion, distributeGraphPortion;
 
-    while (computeAbsoluteDifference(nodeFrequencies, nodeFrequenciesNew) > pow(10, -15)) {
+    while (computeAbsoluteDifference(nodeFrequencies, nodeFrequenciesNew) > pow(10, -12)) {
         // store current iterative in nodeFrequencies and reset nodeFrequenciesNew to zeros
         std::copy(nodeFrequenciesNew.begin(), nodeFrequenciesNew.end(), nodeFrequencies.begin());
         std::fill(nodeFrequenciesNew.begin(), nodeFrequenciesNew.end(), 0);
@@ -251,12 +259,16 @@ void DirectedLouvainMapEquation::calculateNodeFrequencies() {
         for (node u = 0; u < G->upperNodeIdBound(); ++u) {
             if (G->hasNode(u)) {
                 distributeNeighborPortion = (1 - tau) * nodeFrequencies[u];
-                distributeGraphPortion = tau * nodeFrequencies[u] / G->numberOfNodes();
+                
+                distributeGraphPortion = nodeFrequencies[u] / (double) G->numberOfNodes();
+                // if no outgoing edges set tau to 1 otherwise scale with tau
+                if (G->degreeOut(u) > 0) {
+                    distributeGraphPortion *= tau;
+                }
 
                 // distribute portion of frequency to neighbors
-                sumOutgoingWeights = G->weightedDegree(u, false);
                 G->forEdgesOf(u, [&](node, node v, edgeweight ew) {
-                     nodeFrequenciesNew[v] += distributeNeighborPortion * ew / sumOutgoingWeights;
+                     nodeFrequenciesNew[v] += distributeNeighborPortion * ew / weightedOutDegrees[u];
                 });
 
                 // distribute rest uniformly to whole graph
@@ -294,8 +306,8 @@ void DirectedLouvainMapEquation::calculateInitialClusterCutAndVolume() {
 
 
     // sums for calculation of initial value of map equation
-    double sumCut = 0;
-    double sumCutVolume = 0;
+    double sumCut = 0; // sums plogp(q_i) over all clusters i
+    double sumCutVolume = 0; // sums plogp(q_i + volume_i) over all clusters i
 
     int numberNodes = G->numberOfNodes();
 
@@ -308,10 +320,14 @@ void DirectedLouvainMapEquation::calculateInitialClusterCutAndVolume() {
                     clusterCut[u] += ew * nodeFrequencies[u];
             });
         }
+        // clusterCut contains q_i for cluster i (here cluster is one node)
         clusterCut[u] *= 1 - tau;
+        clusterCut[u] /= weightedOutDegrees[u];
         clusterCut[u] += tau * (numberNodes - 1) / numberNodes * nodeFrequencies[u];
+        // clusterVolume contains sum of node frequencies of nodes in cluster
         clusterVolume[u] = nodeFrequencies[u];
 
+        // total cut is sum of q_i over all clusters; volume is sum of all node frequencies
         totalCut += clusterCut[u];
         totalVolume += clusterVolume[u];
 
@@ -325,6 +341,9 @@ void DirectedLouvainMapEquation::calculateInitialClusterCutAndVolume() {
     }
 
     fitness = plogp(totalCut) - 2 * sumCut + sumCutVolume - sumFrequencies;
+#ifndef NDEBUG
+    assert(abs(fitness - mapEquation())< pow(10, -12));
+#endif
 }
 
 std::string DirectedLouvainMapEquation::toString() const {
@@ -339,6 +358,7 @@ double DirectedLouvainMapEquation::plogp(double w) {
     return 0;
 }
 
+#ifndef NDEBUG
 
 long double DirectedLouvainMapEquation::mapEquation() {
 
@@ -359,7 +379,7 @@ long double DirectedLouvainMapEquation::mapEquation() {
 
                 G->forEdgesOf(u, [&](node, node v, edgeweight ew) {
                     if (result[u] != result[v])
-                        q[idx] += ew * nodeFrequencies[u];
+                        q[idx] += ew * nodeFrequencies[u] / weightedOutDegrees[u];
                 });
             }
         }
@@ -387,7 +407,7 @@ long double DirectedLouvainMapEquation::mapEquation() {
 
     return plogp(sumQ) - 2 * sumPLogPClusterCut + sumPLogPClusterCutPlusVol - sumPLogPwAlpha;
 }
-
+#endif
 
 } // namespace NetworKit
 

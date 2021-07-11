@@ -51,13 +51,13 @@ private:
 
     std::vector<double> clusterCut, clusterVolume;
     std::vector<double> nodeFrequencies;
-    std::vector<int> partitionSizes;
+    std::vector<double> weightedOutDegrees;
 
     double totalCut, totalVolume;
     double tau;
     double fitness;
 
-    count localMoving(std::vector<node> &nodes, count iteration);
+    count localMoving(std::vector<node> &nodes);
 
     bool tryLocalMove(node u);
 
@@ -85,8 +85,10 @@ private:
                                   node targetCluster, double &newCurrentVolume, double &newTargetVolume,
                                   double &newCurrentCut, double &newTargetCut);
 
-#ifndef NDEBUG
     double plogp(double w);
+
+    
+#ifndef NDEBUG
     long double mapEquation();
 
     long double oldfitness;
