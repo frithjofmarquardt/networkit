@@ -10,6 +10,7 @@
 #include <gtest/gtest.h>
 
 #include <networkit/community/DirectedLouvainMapEquation.hpp>
+#include <networkit/generators/ClusteredRandomGraphGenerator.hpp>
 #include <networkit/io/METISGraphReader.hpp>
 
 namespace NetworKit {
