@@ -52,17 +52,18 @@ private:
     std::vector<double> clusterCut, clusterVolume;
     std::vector<double> nodeFrequencies;
     std::vector<double> weightedOutDegrees;
+    std::vector<SparseVector<double>> ets_neighborClusterWeights;
 
     double totalCut, totalVolume;
     double tau;
     double fitness;
 
-    count localMoving(std::vector<node> &nodes);
+    count localMoving(std::vector<node> &nodes, count iteration);
 
-    bool tryLocalMove(node u);
+    bool tryLocalMove(node u, SparseVector<double> &neighborClusterWeights);
 
     bool performMove(node u, double frequency, node currentCluster, node targetCluster, 
-                     double currentCut, double targetCut, double fitnessDelta);
+                     double currentCutDelta, double targetCutDelta, double fitnessDelta);
 
     void calculateNodeFrequencies();
 
@@ -74,16 +75,8 @@ private:
      * Calculate the change in the map equation if the node is moved from its current cluster to the
      * target cluster.
      */
-    double fitnessChange(node u, double frequency, double newCurrentVolume, double newTargetVolume, 
-                         double newCurrentCut, double newTargetCut, node currentCluster, node targetCluster);
-
-    /*
-    * Calculate changes in volume/cut of clusters (needed for fitness change calculation) 
-    * when moving node u from current to target cluster
-    */
-    void calculateNewCutAndVolume(node u, double frequency, node currentCluster, 
-                                  node targetCluster, double &newCurrentVolume, double &newTargetVolume,
-                                  double &newCurrentCut, double &newTargetCut);
+    double fitnessChange(node u, double frequency, double currentCutDelta, double targetCutDelta, 
+                         node currentCluster, node targetCluster);
 
     double plogp(double w);
 
