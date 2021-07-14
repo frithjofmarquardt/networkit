@@ -33,23 +33,10 @@ public:
     std::string toString() const override;
 
 private:
-    struct Move {
-        node movedNode = none;
-        double volume = 0.0;
-        index originCluster = none, targetCluster = none;
-        double cutUpdateToOriginCluster = 0.0, cutUpdateToTargetCluster = 0.0;
-
-        Move(node n, double vol, index cc, index tc, double cuptoc, double cupttc)
-            : movedNode(n), volume(vol), originCluster(cc), targetCluster(tc),
-              cutUpdateToOriginCluster(cuptoc), cutUpdateToTargetCluster(cupttc) {}
-    };
-
-    static_assert(std::is_trivially_destructible<Move>::value,
-                  "DirectedLouvainMapEquation::Move struct is not trivially destructible");
-
     count maxIterations;
 
     std::vector<double> clusterCut, clusterVolume;
+    std::vector<count> clusterSize;
     std::vector<double> nodeFrequencies;
     std::vector<double> weightedOutDegrees;
     std::vector<SparseVector<double>> ets_neighborClusterWeights;

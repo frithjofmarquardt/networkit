@@ -30,7 +30,8 @@ DirectedLouvainMapEquation::DirectedLouvainMapEquation(const Graph &graph, count
     : CommunityDetectionAlgorithm(graph, Partition(graph.upperNodeIdBound())),
       maxIterations(maxIterations), clusterCut(graph.upperNodeIdBound()),
       clusterVolume(graph.upperNodeIdBound()), nodeFrequencies(graph.upperNodeIdBound(), 0),
-      weightedOutDegrees(G->upperNodeIdBound(), 0), ets_neighborClusterWeights(1) {
+      weightedOutDegrees(G->upperNodeIdBound(), 0), ets_neighborClusterWeights(1),
+      clusterSize(G->upperNodeIdBound(), 1) {
         tau = 0.15;
         fitness = -1;;
       }
@@ -158,12 +159,10 @@ bool DirectedLouvainMapEquation::tryLocalMove(node u, SparseVector<double> &neig
     double currentVolumeNew = clusterVolume[currentCluster] - frequency;
     double targetCutDelta;
 
-
-    const auto subsetSizeMap = result.subsetSizeMap(); // sizes of clusters
     const count numberNodes = G->numberOfNodes();   
 
     // change for current cluster cut if u moves
-    const double currentCutDelta = tau * (currentVolumeNew / (double) numberNodes - (numberNodes - subsetSizeMap.at(currentCluster)) / (double) numberNodes * frequency) + (1 - tau) * weightChangeCurrent;
+    const double currentCutDelta = tau * (currentVolumeNew / (double) numberNodes - (numberNodes - clusterSize[currentCluster]) / (double) numberNodes * frequency) + (1 - tau) * weightChangeCurrent;
     
     // determine best target cluster
     if (neighborClusterWeights.size() > 0) {
@@ -172,7 +171,7 @@ bool DirectedLouvainMapEquation::tryLocalMove(node u, SparseVector<double> &neig
 
         neighborClusterWeights.forElements([&](index targetCluster,
                                                double weightDelta) {
-            targetCutDelta = tau * ((numberNodes - subsetSizeMap.at(targetCluster) - 1) / (double) numberNodes * frequency - clusterVolume[targetCluster] / numberNodes) + (1 - tau) * weightDelta;
+            targetCutDelta = tau * ((numberNodes - clusterSize[targetCluster] - 1) / (double) numberNodes * frequency - clusterVolume[targetCluster] / numberNodes) + (1 - tau) * weightDelta;
 
             change = fitnessChange(u, frequency, currentCutDelta, targetCutDelta, currentCluster, targetCluster);
 
@@ -237,6 +236,8 @@ bool DirectedLouvainMapEquation::performMove(node u, double frequency, node curr
 
     // adjust result partition with move
     result.moveToSubset(targetCluster, u);
+    clusterSize[currentCluster] -= 1;
+    clusterSize[targetCluster] += 1;
 
     fitness += fitnessDelta;
 
